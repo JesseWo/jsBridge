@@ -15,6 +15,9 @@ public class FeedbackWidget implements IJsWidget {
 
     private static final String TAG = "FeedbackWidget";
 
+    public FeedbackWidget(IPageManager pageManager) {
+    }
+
     @Override
     public int requestCode() {
         return 0;

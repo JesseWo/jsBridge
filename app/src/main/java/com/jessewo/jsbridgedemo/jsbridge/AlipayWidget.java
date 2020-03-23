@@ -15,6 +15,9 @@ public class AlipayWidget implements IJsWidget {
 
     private static final String TAG = "AlipayWidget";
 
+    public AlipayWidget(IPageManager pageManager) {
+    }
+
     @Override
     public int requestCode() {
         return 0;

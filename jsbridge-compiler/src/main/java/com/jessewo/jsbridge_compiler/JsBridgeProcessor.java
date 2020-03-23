@@ -4,6 +4,7 @@ import com.google.auto.service.AutoService;
 import com.jessewo.annotations.JsBridgeWidget;
 import com.jessewo.jsbridge_compiler.utils.Logger;
 import com.squareup.javapoet.ClassName;
+import com.squareup.javapoet.FieldSpec;
 import com.squareup.javapoet.JavaFile;
 import com.squareup.javapoet.MethodSpec;
 import com.squareup.javapoet.TypeSpec;
@@ -13,6 +14,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import javax.annotation.processing.AbstractProcessor;
@@ -24,6 +26,7 @@ import javax.annotation.processing.SupportedAnnotationTypes;
 import javax.lang.model.SourceVersion;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
+import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
@@ -44,14 +47,16 @@ public class JsBridgeProcessor extends AbstractProcessor {
     private Elements elementUtils;
     private Filer mFiler;
     private Logger logger;
+    private Map<String, String> options;
 
     @Override
     public synchronized void init(ProcessingEnvironment processingEnv) {
         super.init(processingEnv);
+        logger = new Logger(processingEnv.getMessager());
         typesUtil = processingEnv.getTypeUtils();
         elementUtils = processingEnv.getElementUtils();
         mFiler = processingEnv.getFiler();
-        logger = new Logger(processingEnv.getMessager());
+        options = processingEnv.getOptions();
     }
 
     @Override
@@ -60,7 +65,29 @@ public class JsBridgeProcessor extends AbstractProcessor {
             Set<? extends Element> elements = roundEnv.getElementsAnnotatedWith(JsBridgeWidget.class);
             logger.info(">>> Found routes, size is " + elements.size() + " <<<");
             try {
-                List<MethodSpec> methodList = new ArrayList<>(elements.size());
+                List<FieldSpec> fieldList = new ArrayList<>();
+                List<MethodSpec> methodList = new ArrayList<>();
+                fieldList.add(
+                        FieldSpec.builder(String.class, "version", PUBLIC, Modifier.STATIC, Modifier.FINAL)
+                                .initializer("$S",options.getOrDefault("jsInterfaceVersion", "1.0.0"))
+                                .build()
+                );
+                ClassName iPageManagerClass = ClassName.get("com.jessewo.jsbridgedemo.jsbridge", "IPageManager");
+                fieldList.add(
+                        FieldSpec.builder(iPageManagerClass, "pageManager", Modifier.PRIVATE)
+                                .build()
+                );
+
+                //constructor
+                methodList.add(
+                        MethodSpec.constructorBuilder()
+                                .addModifiers(PUBLIC)
+                                .addParameter(iPageManagerClass, "pageManager")
+                                .addStatement("this.pageManager = pageManager")
+                                .build()
+                );
+
+                //构造所有的 @JavascriptInterface 方法
                 for (Element element : elements) {
                     if (element.getKind() != ElementKind.CLASS) {
                         logger.error(String.format("Builder annotation can only be applied to class: %s", element));
@@ -79,18 +106,20 @@ public class JsBridgeProcessor extends AbstractProcessor {
                                     .addModifiers(PUBLIC)
                                     .returns(void.class)
                                     .addParameter(String.class, "jString")
-                                    .addStatement("new $T().exec(jString)", widgetClassName)
+                                    .addStatement("new $T(pageManager).exec(jString)", widgetClassName)
                                     .build()
                     );
                 }
+
                 // Write root meta into disk.
-                String packageName = elementUtils.getPackageOf(elements.iterator().next()).getQualifiedName().toString();
-                String classFileName = "JsInterface";
+                String classFileName = options.getOrDefault("jsInterfaceClassName", "JsInterface");
                 TypeSpec typeSpec = TypeSpec.classBuilder(classFileName)
                         .addJavadoc(WARNING_TIPS)
 //                                .addSuperinterface(ClassName.get(elementUtils.getTypeElement(ITROUTE_ROOT)))
                         .addModifiers(PUBLIC)
-                        .addMethods(methodList).build();
+                        .addMethods(methodList)
+                        .addFields(fieldList)
+                        .build();
                 JavaFile.builder(PACKAGE_OF_GENERATE_FILE, typeSpec).build().writeTo(mFiler);
 
                 logger.info(">>> Generated Class, name is " + classFileName + " <<<");
